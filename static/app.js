@@ -1,39 +1,86 @@
-const checkboxes = Array.from(document.querySelectorAll('input[name="animal"]'));
-const imageHolder = document.getElementById('image-holder');
+// static/app.js - Animal preview + Upload with Gemini output
 
-checkboxes.forEach(cb => {
-  cb.addEventListener('change', () => {
-    if (cb.checked) {
-      checkboxes.forEach(other => { if (other !== cb) other.checked = false; });
-      showAnimal(cb.value);
-    } else {
-      imageHolder.innerHTML = '<p class="muted">Choose an animal to see an image.</p>';
-    }
+document.addEventListener('DOMContentLoaded', () => {
+  console.log("app.js loaded and DOMContentLoaded");
+
+  // Attach animal radios
+  const radios = document.querySelectorAll('input[name="animal"]');
+  radios.forEach(r => {
+    r.addEventListener('change', function() {
+      const val = this.value;
+      showAnimalImage(val);
+    });
   });
+
+  // Attach upload button
+  const uploadBtn = document.getElementById('upload_btn');
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', onUploadClick);
+  } else {
+    console.error("upload_btn not found");
+  }
 });
 
-function showAnimal(animal) {
-  const src = `/static/images/${animal}.svg`;
-  imageHolder.innerHTML = `<img alt="${animal}" src="${src}" />`;
+function showAnimalImage(name) {
+  const container = document.getElementById('animal_preview');
+  container.innerHTML = '';
+
+  const img = document.createElement('img');
+  img.className = 'animal-img';
+  img.alt = name;
+
+  const jpgUrl = `/static/images/${name}.jpg`;
+  const svgUrl = `/static/images/${name}.svg`;
+
+  img.onerror = () => {
+    if (img.src.endsWith('.jpg')) {
+      console.warn(`jpg missing, trying svg for ${name}`);
+      img.src = svgUrl;
+    } else {
+      container.innerHTML = `<p style="color:red">No image found for ${name}</p>`;
+    }
+  };
+
+  img.src = jpgUrl;
+  container.appendChild(img);
 }
 
-const form = document.getElementById('upload-form');
-const fileInput = document.getElementById('file-input');
-const result = document.getElementById('upload-result');
-
-form.addEventListener('submit', async (e) => {
-  e.preventDefault();
+async function onUploadClick() {
+  const fileInput = document.getElementById('file_input');
   if (!fileInput.files.length) {
-    result.textContent = "Please choose a file first.";
+    alert('Choose a file first');
     return;
   }
+  const file = fileInput.files[0];
+  console.log("Uploading file:", file.name, file.type, file.size);
+
   const fd = new FormData();
-  fd.append('file', fileInput.files[0]);
-  const res = await fetch('/upload', { method: 'POST', body: fd });
-  const data = await res.json();
-  result.textContent = [
-    `File name : ${data.filename}`,
-    `File size : ${data.size_human} (${data.size_bytes} bytes)`,
-    `MIME type : ${data.mimetype}`
-  ].join('\\n');
-});
+  fd.append('file', file);
+
+  document.getElementById('gemini_out').innerText = 'Uploading...';
+
+  try {
+    const resp = await fetch('/upload', { method: 'POST', body: fd });
+    const data = await resp.json();
+    console.log("Upload response:", data);
+
+    document.getElementById('filename').innerText = data.name || '';
+    document.getElementById('filesize').innerText = data.size_bytes ? `${data.size_bytes} bytes` : '';
+    document.getElementById('filetype').innerText = data.type || '';
+
+    if (data.gemini_caption) {
+      document.getElementById('gemini_out').innerText = data.gemini_caption;
+    } else if (data.gemini_summary) {
+      document.getElementById('gemini_out').innerText = data.gemini_summary;
+    } else if (data.gemini_error) {
+      document.getElementById('gemini_out').innerText = 'Gemini error: ' + data.gemini_error;
+    } else if (data.gemini_notice) {
+      document.getElementById('gemini_out').innerText = data.gemini_notice;
+    } else {
+      document.getElementById('gemini_out').innerText = 'No Gemini output';
+    }
+  } catch (err) {
+    console.error(err);
+    document.getElementById('gemini_out').innerText = 'Upload failed: ' + err.message;
+  }
+}
